@@ -2,6 +2,9 @@
 
 from smbus2 import SMBus
 import time
+import json
+import collections as cl
+from datetime import datetime
 
 bus_number  = 1
 i2c_address = 0x76
@@ -13,6 +16,8 @@ digP = []
 digH = []
 
 t_fine = 0.0
+
+outData=cl.OrderedDict()
 
 
 def writeReg(reg_address, data):
@@ -90,9 +95,9 @@ def compensate_P(adc_P):
 		pressure = (pressure / v1) * 2
 	v1 = (digP[8] * (((pressure / 8.0) * (pressure / 8.0)) / 8192.0)) / 4096
 	v2 = ((pressure / 4.0) * digP[7]) / 8192.0
-	pressure = pressure + ((v1 + v2 + digP[6]) / 16.0)  
+	pressure = pressure + ((v1 + v2 + digP[6]) / 16.0)
 
-	print "pressure : %7.2f hPa" % (pressure/100)
+	return (pressure/100)
 
 def compensate_T(adc_T):
 	global t_fine
@@ -100,7 +105,8 @@ def compensate_T(adc_T):
 	v2 = (adc_T / 131072.0 - digT[0] / 8192.0) * (adc_T / 131072.0 - digT[0] / 8192.0) * digT[2]
 	t_fine = v1 + v2
 	temperature = t_fine / 5120.0
-	print "temp : %-6.2f ℃" % (temperature) 
+
+	return (temperature)
 
 def compensate_H(adc_H):
 	global t_fine
@@ -114,7 +120,8 @@ def compensate_H(adc_H):
 		var_h = 100.0
 	elif var_h < 0.0:
 		var_h = 0.0
-	print "hum : %6.2f ％" % (var_h)
+
+	return (var_h)
 
 
 def setup():
@@ -134,16 +141,39 @@ def setup():
 	writeReg(0xF4,ctrl_meas_reg)
 	writeReg(0xF5,config_reg)
 
+def dateWrite(num):
+ 	data = []
+
+	for i in range (0xF7, 0xF7+8):
+                data.append(bus.read_byte_data(i2c_address,i))
+        pres_raw = (data[0] << 12) | (data[1] << 4) | (data[2] >> 4)
+        temp_raw = (data[3] << 12) | (data[4] << 4) | (data[5] >> 4)
+        hum_raw  = (data[6] << 8)  |  data[7]
+
+        temp=compensate_T(temp_raw)
+        pres=compensate_P(pres_raw)
+        hum=compensate_H(hum_raw)
+	now=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+	outDate["id"+str(num)]=cl.orderdDict({"time":now,"pres":pres,"hum":hum})
+
+
+
 
 setup()
 get_calib_param()
 
 
 if __name__ == '__main__':
-
+	i=0
 	try:
 		while True:
-			readData()
+			dateWrite(i)
+			i+=1
 			time.sleep(10)
+
+
 	except KeyboardInterrupt:
+		fw =open('outDate.json','w')
+		json.dump(outDate,fw,indent=4)
 		pass
