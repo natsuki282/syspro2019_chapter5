@@ -19,13 +19,19 @@ t_fine = 0.0
 
 outData=cl.OrderedDict()
 
+idList=[]
+timeList=[]
+tempList=[]
+humList=[]
+presList=[]
+
 
 def writeReg(reg_address, data):
 	bus.write_byte_data(i2c_address,reg_address,data)
 
 def get_calib_param():
 	calib = []
-	
+
 	for i in range (0x88,0x88+24):
 		calib.append(bus.read_byte_data(i2c_address,i))
 	calib.append(bus.read_byte_data(i2c_address,0xA1))
@@ -50,7 +56,7 @@ def get_calib_param():
 	digH.append((calib[28]<< 4) | (0x0F & calib[29]))
 	digH.append((calib[30]<< 4) | ((calib[29] >> 4) & 0x0F))
 	digH.append( calib[31] )
-	
+
 	for i in range(1,2):
 		if digT[i] & 0x8000:
 			digT[i] = (-digT[i] ^ 0xFFFF) + 1
@@ -61,7 +67,7 @@ def get_calib_param():
 
 	for i in range(0,6):
 		if digH[i] & 0x8000:
-			digH[i] = (-digH[i] ^ 0xFFFF) + 1  
+			digH[i] = (-digH[i] ^ 0xFFFF) + 1
 
 def readData():
 	data = []
@@ -70,7 +76,7 @@ def readData():
 	pres_raw = (data[0] << 12) | (data[1] << 4) | (data[2] >> 4)
 	temp_raw = (data[3] << 12) | (data[4] << 4) | (data[5] >> 4)
 	hum_raw  = (data[6] << 8)  |  data[7]
-	
+
 	compensate_T(temp_raw)
 	compensate_P(pres_raw)
 	compensate_H(hum_raw)
@@ -78,14 +84,14 @@ def readData():
 def compensate_P(adc_P):
 	global  t_fine
 	pressure = 0.0
-	
+
 	v1 = (t_fine / 2.0) - 64000.0
 	v2 = (((v1 / 4.0) * (v1 / 4.0)) / 2048) * digP[5]
 	v2 = v2 + ((v1 * digP[4]) * 2.0)
 	v2 = (v2 / 4.0) + (digP[3] * 65536.0)
 	v1 = (((digP[2] * (((v1 / 4.0) * (v1 / 4.0)) / 8192)) / 8)  + ((digP[1] * v1) / 2.0)) / 262144
 	v1 = ((32768 + v1) * digP[0]) / 32768
-	
+
 	if v1 == 0:
 		return 0
 	pressure = ((1048576 - adc_P) - (v2 / 4096)) * 3125
@@ -142,8 +148,7 @@ def setup():
 	writeReg(0xF5,config_reg)
 
 def dateWrite(num):
- 	data = []
-
+ 	data=[]
 	for i in range (0xF7, 0xF7+8):
                 data.append(bus.read_byte_data(i2c_address,i))
         pres_raw = (data[0] << 12) | (data[1] << 4) | (data[2] >> 4)
@@ -153,11 +158,35 @@ def dateWrite(num):
         temp=compensate_T(temp_raw)
         pres=compensate_P(pres_raw)
         hum=compensate_H(hum_raw)
-	now=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-	outDate["id"+str(num)]=cl.orderdDict({"time":now,"pres":pres,"hum":hum})
+	now=datetime.now()
 
 
+	temp=round(temp,2)
+	pres=round(pres,2)
+	hum=round(hum,2)
+
+	id="id"+str(num)
+
+	idList.append(id)
+	timeList.append(time.strftime('%Y/%m/%d %H:%M:%S'))
+	tempList.append(temp)
+	presList.append(pres)
+	humList.append(hum)
+
+	print timeList[num]
+
+def jsonWrite():
+	date=cl.OrderedDict()
+	for i in range(len(idList)):
+		date["time"]=timeList[i]
+		date["temp"]=tempList[i]
+		date["pres"]=presList[i]
+		date["hum"]=humList[i]
+
+		outData[idList[i]]=date
+
+	fw=open('out.json','w')
+	json.dump(outData,fw,indent=4)
 
 
 setup()
@@ -174,6 +203,5 @@ if __name__ == '__main__':
 
 
 	except KeyboardInterrupt:
-		fw =open('outDate.json','w')
-		json.dump(outDate,fw,indent=4)
+		jsonWrite()
 		pass
